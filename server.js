@@ -5,12 +5,15 @@ const fs = require('fs');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'pelitrack.db');
+
+// Dockploy pot muntar el volum persistent a /data o /app/data.
+// Si /data existeix (volum muntat), el fem servir; si no, mantenim /app/data.
+const DEFAULT_DB_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+const DB_PATH = process.env.DB_PATH || path.join(DEFAULT_DB_DIR, 'pelitrack.db');
 const LEGACY_DB_PATH = '/app/legacy-data/pelitrack.db';
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-// Si encara existeix la base de dades antiga del desplegament anterior,
-// copia-la una sola vegada al volum persistent nou abans d'obrir SQLite.
+// Migració única de la base de dades antiga si encara és accessible.
 if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
   fs.copyFileSync(LEGACY_DB_PATH, DB_PATH);
   for (const suffix of ['-wal', '-shm']) {
@@ -120,7 +123,7 @@ app.get(['/', '/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('html').send(html);
 });
-app.get('/api/health', (req, res) => res.json({ ok: true, database: 'sqlite' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, database: 'sqlite', db_path: DB_PATH }));
 app.use(express.static(__dirname));
 app.use((req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.listen(PORT, '0.0.0.0', () => console.log(`PeliTrack escoltant al port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`PeliTrack escoltant al port ${PORT}; base de dades: ${DB_PATH}`));
