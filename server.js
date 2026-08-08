@@ -1,19 +1,17 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'pelitrack.db');
-
-const fs = require('fs');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-
-db.exec(`
-CREATE TABLE IF NOT EXISTS movies (
+db.exec(`CREATE TABLE IF NOT EXISTS movies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
   year INTEGER,
@@ -29,17 +27,10 @@ CREATE TABLE IF NOT EXISTS movies (
   parent_movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-`);
+);`);
 
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(__dirname, { extensions: ['html'] }));
-
-function cleanMovie(row) {
-  if (!row) return null;
-  return { ...row, watched: !!row.watched, favorite: !!row.favorite };
-}
-
+function cleanMovie(row) { return row ? { ...row, watched: !!row.watched, favorite: !!row.favorite } : null; }
 function validateMovie(body, partial = false) {
   const allowed = ['title','year','genre','poster_url','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];
   const out = {};
@@ -52,20 +43,15 @@ function validateMovie(body, partial = false) {
   return out;
 }
 
-app.get('/api/movies', (req, res) => {
-  const rows = db.prepare('SELECT * FROM movies ORDER BY title COLLATE NOCASE').all();
-  res.json(rows.map(cleanMovie));
-});
+app.get('/api/movies', (req, res) => res.json(db.prepare('SELECT * FROM movies ORDER BY title COLLATE NOCASE').all().map(cleanMovie)));
 
 app.post('/api/movies', (req, res) => {
   try {
-    const m = validateMovie(req.body);
-    const stmt = db.prepare(`INSERT INTO movies (title,year,genre,poster_url,description,duration_minutes,rating,watched,favorite,notes,watched_at,parent_movie_id,updated_at) VALUES (@title,@year,@genre,@poster_url,@description,@duration_minutes,@rating,0,@favorite,@notes,NULL,@parent_movie_id,@updated_at)`);
-    const now = new Date().toISOString();
-    const info = stmt.run({
-      title: String(m.title).trim(), year: m.year == null ? null : Number(m.year), genre: m.genre ?? null, poster_url: m.poster_url ?? null,
-      description: m.description ?? null, duration_minutes: m.duration_minutes == null ? null : Number(m.duration_minutes), rating: m.rating == null ? null : Number(m.rating),
-      favorite: m.favorite ? 1 : 0, notes: m.notes ?? null, parent_movie_id: m.parent_movie_id == null ? null : Number(m.parent_movie_id), updated_at: now
+    const m = validateMovie(req.body), now = new Date().toISOString();
+    const info = db.prepare(`INSERT INTO movies (title,year,genre,poster_url,description,duration_minutes,rating,watched,favorite,notes,watched_at,parent_movie_id,updated_at) VALUES (@title,@year,@genre,@poster_url,@description,@duration_minutes,@rating,0,@favorite,@notes,NULL,@parent_movie_id,@updated_at)`).run({
+      title: String(m.title).trim(), year: m.year == null ? null : Number(m.year), genre: m.genre ?? null, poster_url: m.poster_url ?? null, description: m.description ?? null,
+      duration_minutes: m.duration_minutes == null ? null : Number(m.duration_minutes), rating: m.rating == null ? null : Number(m.rating), favorite: m.favorite ? 1 : 0,
+      notes: m.notes ?? null, parent_movie_id: m.parent_movie_id == null ? null : Number(m.parent_movie_id), updated_at: now
     });
     res.status(201).json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(info.lastInsertRowid)));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -73,32 +59,38 @@ app.post('/api/movies', (req, res) => {
 
 app.patch('/api/movies/:id', (req, res) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID no vàlid.' });
+    const id = Number(req.params.id); if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID no vàlid.' });
     const m = validateMovie(req.body, true);
     if (m.watched === true) { m.watched = 1; m.watched_at = new Date().toISOString(); }
     if (m.watched === false) { m.watched = 0; m.watched_at = null; }
     if (m.favorite !== undefined) m.favorite = m.favorite ? 1 : 0;
-    if (m.updated_at === undefined) m.updated_at = new Date().toISOString();
+    m.updated_at = new Date().toISOString();
     const keys = Object.keys(m).filter(k => ['title','year','genre','poster_url','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'].includes(k));
     if (!keys.length) return res.status(400).json({ error: 'No hi ha dades per actualitzar.' });
-    const values = { ...m, id };
-    const sql = `UPDATE movies SET ${keys.map(k => `${k}=@${k}`).join(', ')} WHERE id=@id`;
-    const info = db.prepare(sql).run(values);
+    const info = db.prepare(`UPDATE movies SET ${keys.map(k => `${k}=@${k}`).join(', ')} WHERE id=@id`).run({ ...m, id });
     if (!info.changes) return res.status(404).json({ error: 'Pel·lícula no trobada.' });
     res.json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(id)));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.delete('/api/movies/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const info = db.prepare('DELETE FROM movies WHERE id=?').run(id);
+  const info = db.prepare('DELETE FROM movies WHERE id=?').run(Number(req.params.id));
   if (!info.changes) return res.status(404).json({ error: 'Pel·lícula no trobada.' });
   res.status(204).end();
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, database: 'sqlite', db_path: DB_PATH }));
+app.get('/api/disney-poster', async (req, res) => {
+  try {
+    const url = String(req.query.url || ''), parsed = new URL(url);
+    if (!/(^|\.)disneyplus\.com$/i.test(parsed.hostname)) return res.status(400).end();
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }), html = await r.text();
+    const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+    if (!match) return res.status(404).end();
+    res.redirect(match[1].replace(/&amp;/g, '&'));
+  } catch { res.status(404).end(); }
+});
 
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-
-app.listen(PORT, '0.0.0.0', () => console.log(`PeliTrack: http://0.0.0.0:${PORT}`));
+app.get('/api/health', (req, res) => res.json({ ok: true, database: 'sqlite' }));
+app.use(express.static(__dirname));
+app.use((req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.listen(PORT, '0.0.0.0', () => console.log(`PeliTrack escoltant al port ${PORT}`));
