@@ -6,7 +6,6 @@ COPY . .
 RUN mkdir -p /app/data
 ENV NODE_ENV=production
 ENV PORT=80
-ENV DB_PATH=/app/data/pelitrack.db
 EXPOSE 80
 VOLUME ["/app/data"]
 CMD ["npm", "start"]
