@@ -6,11 +6,10 @@ services:
     ports:
       - "80:80"
     volumes:
-      # IMPORTANT: aquest volum ha d'existir abans del desplegament.
-      # Així Dockploy/Docker no el pot recrear accidentalment en cada deploy.
-      - pelitrack_data:/app/data
-      # Compatibilitat: permet migrar automàticament una base de dades antiga.
+      - pelitrack_data:/data
       - ./pelitrack-data:/app/legacy-data:ro
+    environment:
+      DB_PATH: /data/pelitrack.db
 
 volumes:
   pelitrack_data:
