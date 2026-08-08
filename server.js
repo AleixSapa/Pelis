@@ -79,12 +79,25 @@ app.delete('/api/movies/:id', (req, res) => {
   res.status(204).end();
 });
 
+app.get('/api/discover-all', async (req, res) => {
+  try {
+    const url = 'https://apis.justwatch.com/content/titles/movie/es_ES';
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'PeliTrack/1.0' } });
+    if (!r.ok) throw new Error(`JustWatch HTTP ${r.status}`);
+    const raw = await r.json();
+    res.json(raw);
+  } catch (e) {
+    console.error('discover-all:', e);
+    res.status(502).json({ error: 'No s’ha pogut carregar el catàleg de streaming.' });
+  }
+});
+
 app.get('/api/disney-poster', async (req, res) => {
   try {
     const url = String(req.query.url || ''), parsed = new URL(url);
-    if (!/(^|\.)disneyplus\.com$/i.test(parsed.hostname)) return res.status(400).end();
+    if (!/(^|\\.)disneyplus\\.com$/i.test(parsed.hostname)) return res.status(400).end();
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }), html = await r.text();
-    const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+    const match = html.match(/<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']/i) || html.match(/<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']og:image[\"']/i);
     if (!match) return res.status(404).end();
     res.redirect(match[1].replace(/&amp;/g, '&'));
   } catch { res.status(404).end(); }
