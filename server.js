@@ -25,8 +25,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS movies (
   favorite INTEGER NOT NULL DEFAULT 0,notes TEXT,watched_at TEXT,parent_movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );`);
-
-// Enllaç de la pel·lícula separat del pòster. S'afegeix sense tocar les dades existents.
 try { db.exec('ALTER TABLE movies ADD COLUMN movie_url TEXT'); } catch (_) {}
 
 app.use(express.json({ limit: '1mb' }));
@@ -47,6 +45,38 @@ app.post('/api/movies',(req,res)=>{try{const m=validateMovie(req.body),now=new D
 app.patch('/api/movies/:id',(req,res)=>{try{const id=Number(req.params.id);if(!Number.isInteger(id))return res.status(400).json({error:'ID no vàlid.'});const m=validateMovie(req.body,true);if(m.watched===true){m.watched=1;m.watched_at=new Date().toISOString()}if(m.watched===false){m.watched=0;m.watched_at=null}if(m.favorite!==undefined)m.favorite=m.favorite?1:0;m.updated_at=new Date().toISOString();const keys=Object.keys(m).filter(k=>['title','year','genre','poster_url','movie_url','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'].includes(k));if(!keys.length)return res.status(400).json({error:'No hi ha dades per actualitzar.'});const info=db.prepare(`UPDATE movies SET ${keys.map(k=>`${k}=@${k}`).join(', ')} WHERE id=@id`).run({...m,id});if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(id)))}catch(e){res.status(400).json({error:e.message})}});
 app.delete('/api/movies/:id',(req,res)=>{const info=db.prepare('DELETE FROM movies WHERE id=?').run(Number(req.params.id));if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.status(204).end()});
 app.get('/api/discover-all',async(req,res)=>{try{const r=await fetch('https://apis.justwatch.com/content/titles/movie/es_ES',{headers:{Accept:'application/json','User-Agent':'PeliTrack/1.0'}});if(!r.ok)throw new Error(`JustWatch HTTP ${r.status}`);res.json(await r.json())}catch(e){console.error('discover-all:',e);res.status(502).json({error:'No s’ha pogut carregar el catàleg de streaming.'})}});
-app.get('/api/disney-poster',async(req,res)=>{try{const url=String(req.query.url||''),parsed=new URL(url);if(!/(^|\\.)disneyplus\\.com$/i.test(parsed.hostname))return res.status(400).end();const r=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0'}}),html=await r.text();const match=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]+/i);if(!match)return res.status(404).end();res.redirect(match[1].replace(/&amp;/g,'&'))}catch{res.status(404).end()}});
+
+const STREAMING_HOSTS = ['disneyplus.com','netflix.com','primevideo.com','amazon.com','movistarplus.es','movistar.es'];
+function isAllowedStreamingUrl(value) {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' && STREAMING_HOSTS.some(host => u.hostname === host || u.hostname.endsWith(`.${host}`));
+  } catch { return false; }
+}
+app.get('/api/poster-from-page',async(req,res)=>{
+  try {
+    const url=String(req.query.url||'');
+    if(!isAllowedStreamingUrl(url)) return res.status(400).end();
+    const r=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36','Accept':'text/html,application/xhtml+xml'}});
+    if(!r.ok) return res.status(502).end();
+    const html=await r.text();
+    const patterns=[
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+      /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i
+    ];
+    const match=patterns.map(p=>html.match(p)).find(Boolean);
+    if(!match) return res.status(404).end();
+    const imageUrl=new URL(match[1].replace(/&amp;/g,'&'),url).toString();
+    res.redirect(imageUrl);
+  } catch(e) { console.error('poster-from-page:',e); res.status(404).end(); }
+});
+app.get('/api/disney-poster',async(req,res)=>{
+  const url=String(req.query.url||'');
+  if(!isAllowedStreamingUrl(url)) return res.status(400).end();
+  req.url=`/api/poster-from-page?url=${encodeURIComponent(url)}`;
+  return app._router.handle(req,res,()=>res.status(404).end());
+});
 app.get(['/', '/index.html'],(req,res)=>{const file=path.join(__dirname,'index.html');const html=fs.readFileSync(file,'utf8');res.setHeader('Cache-Control','no-store');res.type('html').send(html)});
 app.get('/api/health',(req,res)=>res.json({ok:true,database:'sqlite',db_path:DB_PATH}));app.use(express.static(__dirname));app.use((req,res)=>res.sendFile(path.join(__dirname,'index.html')));app.listen(PORT,'0.0.0.0',()=>console.log(`PeliTrack escoltant al port ${PORT}; base de dades: ${DB_PATH}`));
