@@ -62,7 +62,12 @@ function posterProxyUrl(value) {
 }
 function cleanMovie(row) {
   if (!row) return null;
-  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: posterProxyUrl(row.poster_url), streaming_urls: normalizeStreamingUrls(row.streaming_urls) };
+  const streaming_urls = normalizeStreamingUrls(row.streaming_urls);
+  if (row.movie_url && isAllowedStreamingUrl(row.movie_url)) {
+    const provider = providerForUrl(row.movie_url);
+    if (provider && !streaming_urls[provider]) streaming_urls[provider] = row.movie_url;
+  }
+  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: posterProxyUrl(row.poster_url), streaming_urls };
 }
 function validateMovie(body, partial = false) {
   const allowed = ['title','year','genre','poster_url','movie_url','streaming_urls','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];
@@ -74,6 +79,7 @@ function validateMovie(body, partial = false) {
   if (out.rating != null && (Number.isNaN(Number(out.rating)) || Number(out.rating) < 0 || Number(out.rating) > 10)) throw new Error('Puntuació no vàlida.');
   if (out.parent_movie_id != null && !Number.isInteger(Number(out.parent_movie_id))) throw new Error('Saga no vàlida.');
   if (out.streaming_urls != null) out.streaming_urls = JSON.stringify(normalizeStreamingUrls(out.streaming_urls));
+  if (!out.movie_url && isAllowedStreamingUrl(out.poster_url)) out.movie_url = out.poster_url;
   return out;
 }
 app.get('/api/movies', (req,res)=>res.json(db.prepare('SELECT * FROM movies ORDER BY title COLLATE NOCASE').all().map(cleanMovie)));
