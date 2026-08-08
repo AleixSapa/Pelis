@@ -28,7 +28,21 @@ db.exec(`CREATE TABLE IF NOT EXISTS movies (
 try { db.exec('ALTER TABLE movies ADD COLUMN movie_url TEXT'); } catch (_) {}
 
 app.use(express.json({ limit: '1mb' }));
-function cleanMovie(row) { return row ? { ...row, watched: !!row.watched, favorite: !!row.favorite } : null; }
+
+const STREAMING_HOSTS = ['disneyplus.com','netflix.com','primevideo.com','amazon.com','movistarplus.es','movistar.es'];
+function isAllowedStreamingUrl(value) {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' && STREAMING_HOSTS.some(host => u.hostname === host || u.hostname.endsWith(`.${host}`));
+  } catch { return false; }
+}
+function posterProxyUrl(value) {
+  return isAllowedStreamingUrl(value) ? `/api/poster-from-page?url=${encodeURIComponent(value)}` : value;
+}
+function cleanMovie(row) {
+  if (!row) return null;
+  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: posterProxyUrl(row.poster_url) };
+}
 function validateMovie(body, partial = false) {
   const allowed = ['title','year','genre','poster_url','movie_url','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];
   const out = {};
@@ -45,14 +59,6 @@ app.post('/api/movies',(req,res)=>{try{const m=validateMovie(req.body),now=new D
 app.patch('/api/movies/:id',(req,res)=>{try{const id=Number(req.params.id);if(!Number.isInteger(id))return res.status(400).json({error:'ID no vàlid.'});const m=validateMovie(req.body,true);if(m.watched===true){m.watched=1;m.watched_at=new Date().toISOString()}if(m.watched===false){m.watched=0;m.watched_at=null}if(m.favorite!==undefined)m.favorite=m.favorite?1:0;m.updated_at=new Date().toISOString();const keys=Object.keys(m).filter(k=>['title','year','genre','poster_url','movie_url','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'].includes(k));if(!keys.length)return res.status(400).json({error:'No hi ha dades per actualitzar.'});const info=db.prepare(`UPDATE movies SET ${keys.map(k=>`${k}=@${k}`).join(', ')} WHERE id=@id`).run({...m,id});if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(id)))}catch(e){res.status(400).json({error:e.message})}});
 app.delete('/api/movies/:id',(req,res)=>{const info=db.prepare('DELETE FROM movies WHERE id=?').run(Number(req.params.id));if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.status(204).end()});
 app.get('/api/discover-all',async(req,res)=>{try{const r=await fetch('https://apis.justwatch.com/content/titles/movie/es_ES',{headers:{Accept:'application/json','User-Agent':'PeliTrack/1.0'}});if(!r.ok)throw new Error(`JustWatch HTTP ${r.status}`);res.json(await r.json())}catch(e){console.error('discover-all:',e);res.status(502).json({error:'No s’ha pogut carregar el catàleg de streaming.'})}});
-
-const STREAMING_HOSTS = ['disneyplus.com','netflix.com','primevideo.com','amazon.com','movistarplus.es','movistar.es'];
-function isAllowedStreamingUrl(value) {
-  try {
-    const u = new URL(value);
-    return u.protocol === 'https:' && STREAMING_HOSTS.some(host => u.hostname === host || u.hostname.endsWith(`.${host}`));
-  } catch { return false; }
-}
 app.get('/api/poster-from-page',async(req,res)=>{
   try {
     const url=String(req.query.url||'');
@@ -75,8 +81,7 @@ app.get('/api/poster-from-page',async(req,res)=>{
 app.get('/api/disney-poster',async(req,res)=>{
   const url=String(req.query.url||'');
   if(!isAllowedStreamingUrl(url)) return res.status(400).end();
-  req.url=`/api/poster-from-page?url=${encodeURIComponent(url)}`;
-  return app._router.handle(req,res,()=>res.status(404).end());
+  return res.redirect(`/api/poster-from-page?url=${encodeURIComponent(url)}`);
 });
 app.get(['/', '/index.html'],(req,res)=>{const file=path.join(__dirname,'index.html');const html=fs.readFileSync(file,'utf8');res.setHeader('Cache-Control','no-store');res.type('html').send(html)});
 app.get('/api/health',(req,res)=>res.json({ok:true,database:'sqlite',db_path:DB_PATH}));app.use(express.static(__dirname));app.use((req,res)=>res.sendFile(path.join(__dirname,'index.html')));app.listen(PORT,'0.0.0.0',()=>console.log(`PeliTrack escoltant al port ${PORT}; base de dades: ${DB_PATH}`));
