@@ -1,9 +1,11 @@
 const SUPABASE_URL='https://slyiyotaatewpgoylkbn.supabase.co';
 const SUPABASE_KEY=['sb_publishable_','XVyAe1goGBo9TJ5k7UAn5g_rDbgTBnU'].join('');
+const DISNEY_POSTER_FN=`${SUPABASE_URL}/functions/v1/disney-poster`;
 const $=s=>document.querySelector(s),grid=$('#grid'),dialog=$('#dialog'); let movies=[],currentFilter='all';
 const {createClient}=await import('https://esm.sh/@supabase/supabase-js@2'); const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 function escapeHtml(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-function poster(url,title){return url?`<img src="${escapeHtml(url)}" alt="Pòster de ${escapeHtml(title)}" loading="lazy" onerror="this.remove();this.parentElement.innerHTML='<span>🎬</span>'">`:'<span>🎬</span>'}
+function imageSource(url){if(!url)return '';try{const u=new URL(url);if(u.hostname==='www.disneyplus.com'||u.hostname==='disneyplus.com')return `${DISNEY_POSTER_FN}?url=${encodeURIComponent(url)}`}catch{}return url}
+function poster(url,title){const src=imageSource(url);return src?`<img src="${escapeHtml(src)}" alt="Pòster de ${escapeHtml(title)}" loading="lazy" onerror="this.remove();this.parentElement.innerHTML='<span>🎬</span>'">`:'<span>🎬</span>'}
 function lastWatched(m){return m.last_watched_at?new Date(m.last_watched_at).getTime():0}
 function dateTimeText(m){if(!m.last_watched_at)return 'Encara no vista';const d=new Date(m.last_watched_at);return `Vista: ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`}
 function isFirst(m){return !m.parent_movie_id}
