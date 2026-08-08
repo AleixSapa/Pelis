@@ -67,7 +67,11 @@ function cleanMovie(row) {
     const provider = providerForUrl(row.movie_url);
     if (provider && !streaming_urls[provider]) streaming_urls[provider] = row.movie_url;
   }
-  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: posterProxyUrl(row.poster_url), streaming_urls };
+  const platformUrl = (row.movie_url && isAllowedStreamingUrl(row.movie_url))
+    ? row.movie_url
+    : Object.values(streaming_urls)[0] || null;
+  const displayUrl = platformUrl || row.poster_url;
+  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: displayUrl ? posterProxyUrl(displayUrl) : null, movie_url: platformUrl || row.movie_url || null, streaming_urls };
 }
 function validateMovie(body, partial = false) {
   const allowed = ['title','year','genre','poster_url','movie_url','streaming_urls','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];
