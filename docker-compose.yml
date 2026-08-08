@@ -8,5 +8,5 @@ services:
     volumes:
       - pelitrack_data:/app/data
 
-top-level:
+volumes:
   pelitrack_data:
