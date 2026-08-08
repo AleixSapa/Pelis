@@ -6,7 +6,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - pelitrack_data:/app/data
+      # La base de dades queda al servidor i no dins del contenidor.
+      # Així sobreviu quan es recrea o actualitza el contenidor.
+      - ./pelitrack-data:/app/data
 
-volumes:
-  pelitrack_data:
