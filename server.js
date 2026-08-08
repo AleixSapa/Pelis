@@ -6,7 +6,19 @@ const fs = require('fs');
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'pelitrack.db');
+const LEGACY_DB_PATH = '/app/legacy-data/pelitrack.db';
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+// Si encara existeix la base de dades antiga del desplegament anterior,
+// copia-la una sola vegada al volum persistent nou abans d'obrir SQLite.
+if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
+  fs.copyFileSync(LEGACY_DB_PATH, DB_PATH);
+  for (const suffix of ['-wal', '-shm']) {
+    const oldFile = `${LEGACY_DB_PATH}${suffix}`;
+    if (fs.existsSync(oldFile)) fs.copyFileSync(oldFile, `${DB_PATH}${suffix}`);
+  }
+  console.log('Base de dades antiga migrada al volum persistent.');
+}
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
@@ -94,7 +106,7 @@ app.get('/api/discover-all', async (req, res) => {
 app.get('/api/disney-poster', async (req, res) => {
   try {
     const url = String(req.query.url || ''), parsed = new URL(url);
-    if (!/(^|\.)disneyplus\.com$/i.test(parsed.hostname)) return res.status(400).end();
+    if (!/(^|\\.)disneyplus\\.com$/i.test(parsed.hostname)) return res.status(400).end();
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }), html = await r.text();
     const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]+/i);
     if (!match) return res.status(404).end();
