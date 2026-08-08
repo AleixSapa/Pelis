@@ -6,7 +6,11 @@ services:
     ports:
       - "80:80"
     volumes:
-      # La base de dades queda al servidor i no dins del contenidor.
-      # Així sobreviu quan es recrea o actualitza el contenidor.
-      - ./pelitrack-data:/app/data
+      # Volum Docker amb nom: no depèn de la carpeta on es desplega el codi.
+      - pelitrack_data:/app/data
+      # Compatibilitat: permet migrar automàticament la base de dades antiga.
+      - ./pelitrack-data:/app/legacy-data:ro
 
+volumes:
+  pelitrack_data:
+    name: pelitrack_data
