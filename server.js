@@ -9,89 +9,24 @@ const DEFAULT_DB_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '
 const DB_PATH = process.env.DB_PATH || path.join(DEFAULT_DB_DIR, 'pelitrack.db');
 const LEGACY_DB_PATH = '/app/legacy-data/pelitrack.db';
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
-  fs.copyFileSync(LEGACY_DB_PATH, DB_PATH);
-  for (const suffix of ['-wal', '-shm']) {
-    const oldFile = `${LEGACY_DB_PATH}${suffix}`;
-    if (fs.existsSync(oldFile)) fs.copyFileSync(oldFile, `${DB_PATH}${suffix}`);
-  }
-}
+if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) { fs.copyFileSync(LEGACY_DB_PATH, DB_PATH); }
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-db.exec(`CREATE TABLE IF NOT EXISTS movies (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,year INTEGER,genre TEXT,poster_url TEXT,
-  description TEXT,duration_minutes INTEGER,rating REAL,watched INTEGER NOT NULL DEFAULT 0,
-  favorite INTEGER NOT NULL DEFAULT 0,notes TEXT,watched_at TEXT,parent_movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);`);
+db.exec(`CREATE TABLE IF NOT EXISTS movies (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,year INTEGER,genre TEXT,poster_url TEXT,description TEXT,duration_minutes INTEGER,rating REAL,watched INTEGER NOT NULL DEFAULT 0,favorite INTEGER NOT NULL DEFAULT 0,notes TEXT,watched_at TEXT,parent_movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL,created_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')));`);
 try { db.exec('ALTER TABLE movies ADD COLUMN movie_url TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE movies ADD COLUMN streaming_urls TEXT'); } catch (_) {}
-
-app.use(express.json({ limit: '1mb' }));
-
-const STREAMING_HOSTS = ['disneyplus.com','netflix.com','primevideo.com','amazon.com','movistarplus.es','movistar.es'];
-function providerForUrl(value) {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    if (host === 'netflix.com' || host.endsWith('.netflix.com')) return 'Netflix';
-    if (host === 'disneyplus.com' || host.endsWith('.disneyplus.com')) return 'Disney+';
-    if (host === 'primevideo.com' || host.endsWith('.primevideo.com') || host === 'amazon.com' || host.endsWith('.amazon.com')) return 'Prime Video';
-    if (host === 'movistarplus.es' || host.endsWith('.movistarplus.es') || host === 'movistar.es' || host.endsWith('.movistar.es')) return 'Movistar Plus+';
-  } catch (_) {}
-  return null;
-}
-function isAllowedStreamingUrl(value) {
-  try {
-    const u = new URL(value);
-    return u.protocol === 'https:' && STREAMING_HOSTS.some(host => u.hostname === host || u.hostname.endsWith(`.${host}`));
-  } catch { return false; }
-}
-function normalizeStreamingUrls(value) {
-  if (!value) return {};
-  try {
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const out = {};
-    for (const [provider, url] of Object.entries(parsed)) if (isAllowedStreamingUrl(url)) out[provider] = url;
-    return out;
-  } catch { return {}; }
-}
-function posterProxyUrl(value) {
-  return isAllowedStreamingUrl(value) ? `/api/poster-from-page?url=${encodeURIComponent(value)}` : value;
-}
-function cleanMovie(row) {
-  if (!row) return null;
-  const streaming_urls = normalizeStreamingUrls(row.streaming_urls);
-  if (row.movie_url && isAllowedStreamingUrl(row.movie_url)) {
-    const provider = providerForUrl(row.movie_url);
-    if (provider && !streaming_urls[provider]) streaming_urls[provider] = row.movie_url;
-  }
-  const platformUrl = (row.movie_url && isAllowedStreamingUrl(row.movie_url))
-    ? row.movie_url
-    : Object.values(streaming_urls)[0] || null;
-  const displayUrl = platformUrl || row.poster_url;
-  return { ...row, watched: !!row.watched, favorite: !!row.favorite, poster_url: displayUrl ? posterProxyUrl(displayUrl) : null, movie_url: platformUrl || row.movie_url || null, streaming_urls };
-}
-function validateMovie(body, partial = false) {
-  const allowed = ['title','year','genre','poster_url','movie_url','streaming_urls','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];
-  const out = {};
-  for (const key of allowed) if (Object.prototype.hasOwnProperty.call(body, key)) out[key] = body[key];
-  if (!partial && (!String(out.title ?? '').trim() || String(out.title).length > 150)) throw new Error('El títol és obligatori i ha de tenir màxim 150 caràcters.');
-  if (out.year != null && (!Number.isInteger(Number(out.year)) || Number(out.year) < 1888 || Number(out.year) > 2100)) throw new Error('Any no vàlid.');
-  if (out.duration_minutes != null && (!Number.isInteger(Number(out.duration_minutes)) || Number(out.duration_minutes) < 1 || Number(out.duration_minutes) > 1000)) throw new Error('Durada no vàlida.');
-  if (out.rating != null && (Number.isNaN(Number(out.rating)) || Number(out.rating) < 0 || Number(out.rating) > 10)) throw new Error('Puntuació no vàlida.');
-  if (out.parent_movie_id != null && !Number.isInteger(Number(out.parent_movie_id))) throw new Error('Saga no vàlida.');
-  if (out.streaming_urls != null) out.streaming_urls = JSON.stringify(normalizeStreamingUrls(out.streaming_urls));
-  if (!out.movie_url && isAllowedStreamingUrl(out.poster_url)) out.movie_url = out.poster_url;
-  return out;
-}
-app.get('/api/movies', (req,res)=>res.json(db.prepare('SELECT * FROM movies ORDER BY title COLLATE NOCASE').all().map(cleanMovie)));
+app.use(express.json({limit:'1mb'}));
+const STREAMING_HOSTS=['disneyplus.com','netflix.com','primevideo.com','amazon.com','movistarplus.es','movistar.es'];
+function providerForUrl(value){try{const h=new URL(value).hostname.toLowerCase();if(h==='netflix.com'||h.endsWith('.netflix.com'))return'Netflix';if(h==='disneyplus.com'||h.endsWith('.disneyplus.com'))return'Disney+';if(h==='primevideo.com'||h.endsWith('.primevideo.com')||h==='amazon.com'||h.endsWith('.amazon.com'))return'Prime Video';if(h==='movistarplus.es'||h.endsWith('.movistarplus.es')||h==='movistar.es'||h.endsWith('.movistar.es'))return'Movistar Plus+'}catch(_){}return null}
+function isAllowedStreamingUrl(value){try{const u=new URL(value);return u.protocol==='https:'&&STREAMING_HOSTS.some(h=>u.hostname===h||u.hostname.endsWith(`.${h}`))}catch{return false}}
+function normalizeStreamingUrls(value){if(!value)return{};try{const parsed=typeof value==='string'?JSON.parse(value):value;if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return{};const out={};for(const [provider,url] of Object.entries(parsed))if(isAllowedStreamingUrl(url))out[provider]=url;return out}catch{return{}}}
+function cleanMovie(row){if(!row)return null;const streaming_urls=normalizeStreamingUrls(row.streaming_urls);if(row.movie_url&&isAllowedStreamingUrl(row.movie_url)){const p=providerForUrl(row.movie_url);if(p&&!streaming_urls[p])streaming_urls[p]=row.movie_url}const platformUrl=row.movie_url&&isAllowedStreamingUrl(row.movie_url)?row.movie_url:Object.values(streaming_urls)[0]||null;const poster=row.poster_url&&!isAllowedStreamingUrl(row.poster_url)?row.poster_url:null;return{...row,watched:!!row.watched,favorite:!!row.favorite,poster_url:poster,movie_url:platformUrl||row.movie_url||null,streaming_urls}}
+function validateMovie(body,partial=false){const allowed=['title','year','genre','poster_url','movie_url','streaming_urls','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'];const out={};for(const k of allowed)if(Object.prototype.hasOwnProperty.call(body,k))out[k]=body[k];if(!partial&&(!String(out.title??'').trim()||String(out.title).length>150))throw new Error('El títol és obligatori i ha de tenir màxim 150 caràcters.');if(out.year!=null&&(!Number.isInteger(Number(out.year))||Number(out.year)<1888||Number(out.year)>2100))throw new Error('Any no vàlid.');if(out.duration_minutes!=null&&(!Number.isInteger(Number(out.duration_minutes))||Number(out.duration_minutes)<1||Number(out.duration_minutes)>1000))throw new Error('Durada no vàlida.');if(out.rating!=null&&(Number.isNaN(Number(out.rating))||Number(out.rating)<0||Number(out.rating)>10))throw new Error('Puntuació no vàlida.');if(out.parent_movie_id!=null&&!Number.isInteger(Number(out.parent_movie_id)))throw new Error('Saga no vàlida.');if(out.streaming_urls!=null)out.streaming_urls=JSON.stringify(normalizeStreamingUrls(out.streaming_urls));if(!out.movie_url&&isAllowedStreamingUrl(out.poster_url))out.movie_url=out.poster_url;return out}
+app.get('/api/movies',(req,res)=>res.json(db.prepare('SELECT * FROM movies ORDER BY title COLLATE NOCASE').all().map(cleanMovie)));
 app.post('/api/movies',(req,res)=>{try{const m=validateMovie(req.body),now=new Date().toISOString();const info=db.prepare(`INSERT INTO movies (title,year,genre,poster_url,movie_url,streaming_urls,description,duration_minutes,rating,watched,favorite,notes,watched_at,parent_movie_id,updated_at) VALUES (@title,@year,@genre,@poster_url,@movie_url,@streaming_urls,@description,@duration_minutes,@rating,0,@favorite,@notes,NULL,@parent_movie_id,@updated_at)`).run({title:String(m.title).trim(),year:m.year==null?null:Number(m.year),genre:m.genre??null,poster_url:m.poster_url??null,movie_url:m.movie_url??null,streaming_urls:m.streaming_urls??'{}',description:m.description??null,duration_minutes:m.duration_minutes==null?null:Number(m.duration_minutes),rating:m.rating==null?null:Number(m.rating),favorite:m.favorite?1:0,notes:m.notes??null,parent_movie_id:m.parent_movie_id==null?null:Number(m.parent_movie_id),updated_at:now});res.status(201).json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(info.lastInsertRowid)))}catch(e){res.status(400).json({error:e.message})}});
 app.patch('/api/movies/:id',(req,res)=>{try{const id=Number(req.params.id);if(!Number.isInteger(id))return res.status(400).json({error:'ID no vàlid.'});const m=validateMovie(req.body,true);if(m.watched===true){m.watched=1;m.watched_at=new Date().toISOString()}if(m.watched===false){m.watched=0;m.watched_at=null}if(m.favorite!==undefined)m.favorite=m.favorite?1:0;m.updated_at=new Date().toISOString();const keys=Object.keys(m).filter(k=>['title','year','genre','poster_url','movie_url','streaming_urls','description','duration_minutes','rating','watched','favorite','notes','watched_at','parent_movie_id','updated_at'].includes(k));if(!keys.length)return res.status(400).json({error:'No hi ha dades per actualitzar.'});const info=db.prepare(`UPDATE movies SET ${keys.map(k=>`${k}=@${k}`).join(', ')} WHERE id=@id`).run({...m,id});if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.json(cleanMovie(db.prepare('SELECT * FROM movies WHERE id=?').get(id)))}catch(e){res.status(400).json({error:e.message})}});
 app.delete('/api/movies/:id',(req,res)=>{const info=db.prepare('DELETE FROM movies WHERE id=?').run(Number(req.params.id));if(!info.changes)return res.status(404).json({error:'Pel·lícula no trobada.'});res.status(204).end()});
-app.get('/api/discover-all',async(req,res)=>{try{const r=await fetch('https://apis.justwatch.com/content/titles/movie/es_ES',{headers:{Accept:'application/json','User-Agent':'PeliTrack/1.0'}});if(!r.ok)throw new Error(`JustWatch HTTP ${r.status}`);res.json(await r.json())}catch(e){console.error('discover-all:',e);res.status(502).json({error:'No s’ha pogut carregar el catàleg de streaming.'})}});
-app.get('/api/poster-from-page',async(req,res)=>{try{const url=String(req.query.url||'');if(!isAllowedStreamingUrl(url))return res.status(400).end();const r=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36','Accept':'text/html,application/xhtml+xml'}});if(!r.ok)return res.status(502).end();const html=await r.text();const patterns=[/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i];const match=patterns.map(p=>html.match(p)).find(Boolean);if(!match)return res.status(404).end();const imageUrl=new URL(match[1].replace(/&amp;/g,'&'),url).toString();res.redirect(imageUrl)}catch(e){console.error('poster-from-page:',e);res.status(404).end()}});
-app.get('/api/disney-poster',async(req,res)=>{const url=String(req.query.url||'');if(!isAllowedStreamingUrl(url))return res.status(400).end();return res.redirect(`/api/poster-from-page?url=${encodeURIComponent(url)}`)});
+app.get('/api/poster-from-page',async(req,res)=>{try{const url=String(req.query.url||'');if(!isAllowedStreamingUrl(url))return res.status(400).end();const r=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html,application/xhtml+xml'}});if(!r.ok)return res.status(502).end();const html=await r.text();const patterns=[/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i];const match=patterns.map(p=>html.match(p)).find(Boolean);if(!match)return res.status(404).end();res.redirect(new URL(match[1].replace(/&amp;/g,'&'),url).toString())}catch(e){console.error('poster-from-page:',e);res.status(404).end()}});
 app.get(['/', '/index.html'],(req,res)=>{const file=path.join(__dirname,'index.html');const html=fs.readFileSync(file,'utf8');res.setHeader('Cache-Control','no-store');res.type('html').send(html)});
 app.get('/api/health',(req,res)=>res.json({ok:true,database:'sqlite',db_path:DB_PATH}));app.use(express.static(__dirname));app.use((req,res)=>res.sendFile(path.join(__dirname,'index.html')));app.listen(PORT,'0.0.0.0',()=>console.log(`PeliTrack escoltant al port ${PORT}; base de dades: ${DB_PATH}`));
