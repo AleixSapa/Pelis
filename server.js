@@ -84,8 +84,7 @@ app.get('/api/discover-all', async (req, res) => {
     const url = 'https://apis.justwatch.com/content/titles/movie/es_ES';
     const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'PeliTrack/1.0' } });
     if (!r.ok) throw new Error(`JustWatch HTTP ${r.status}`);
-    const raw = await r.json();
-    res.json(raw);
+    res.json(await r.json());
   } catch (e) {
     console.error('discover-all:', e);
     res.status(502).json({ error: 'No s’ha pogut carregar el catàleg de streaming.' });
@@ -95,14 +94,22 @@ app.get('/api/discover-all', async (req, res) => {
 app.get('/api/disney-poster', async (req, res) => {
   try {
     const url = String(req.query.url || ''), parsed = new URL(url);
-    if (!/(^|\\.)disneyplus\\.com$/i.test(parsed.hostname)) return res.status(400).end();
+    if (!/(^|\.)disneyplus\.com$/i.test(parsed.hostname)) return res.status(400).end();
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }), html = await r.text();
-    const match = html.match(/<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']/i) || html.match(/<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']og:image[\"']/i);
+    const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]+/i);
     if (!match) return res.status(404).end();
     res.redirect(match[1].replace(/&amp;/g, '&'));
   } catch { res.status(404).end(); }
 });
 
+const discoverUiScript = `<script>\n(()=>{\nconst B=document.getElementById('discoverBtn'),D=document.getElementById('discoverDialog'),C=document.getElementById('closeDiscover'),R=document.getElementById('discoverResults'),S=document.getElementById('discoverStatus'),I=document.getElementById('discoverSearch'),F=document.getElementById('discoverForm');\nif(!B||!D)return;const ids={Netflix:new Set([8]),'Prime Video':new Set([9]),'Disney+':new Set([337]),'Movistar Plus+':new Set([149,318])};let all=[],filter='all';const esc=v=>String(v??'').replace(/[&<>\\\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#039;'}[c]));const poster=m=>{let p=m.poster||m.poster_url||'';if(p&&!/^https?:/i.test(p))p='https://images.justwatch.com'+p;return p?\`<img src="\${esc(p)}" loading="lazy" onerror="this.style.display='none'">\`:'🎬'};const norm=raw=>(raw.items||raw.results||raw.data||[]).map(x=>{const o=Array.isArray(x.offers)?x.offers:[],pids=new Set(o.map(a=>Number(a.provider_id)).filter(Boolean)),providers=Object.entries(ids).filter(([,s])=>[...s].some(id=>pids.has(id))).map(([n])=>n);return{title:x.title||x.original_title||'Sense títol',year:x.original_release_year||x.year||null,rating:x.imdb_rating||x.rating||null,poster:x.poster||x.poster_url||'',providers};}).filter(x=>x.title);function render(){const q=I.value.trim().toLowerCase(),list=all.filter(x=>(filter==='all'||x.providers.includes(filter))&&(!q||x.title.toLowerCase().includes(q)));S.textContent=list.length?\`\${list.length} pel·lícules\`:'No s’han trobat pel·lícules';R.innerHTML=list.slice(0,100).map((m,i)=>\`<article class="discover-card"><div class="discover-poster">\${poster(m)}</div><div class="discover-info"><h3>\${esc(m.title)}</h3><p>\${m.year||'Any desconegut'}\${m.rating?\` · ⭐ \${Number(m.rating).toFixed(1)}/10\`:''}</p><div class="discover-providers">\${m.providers.length?m.providers.map(p=>\`<span class="discover-provider">\${p}</span>\`).join(''):'<span class="discover-none">Streaming no especificat</span>'}</div><div class="discover-actions"><button class="primary" data-add="\${i}">+ Afegir a PeliTrack</button></div></div></article>\`).join('');}async function load(){S.textContent='Carregant totes les pel·lícules...';R.innerHTML='';try{const r=await fetch('/api/discover-all');if(!r.ok)throw Error();all=norm(await r.json());render()}catch(e){console.error(e);S.textContent='No s’ha pogut carregar el catàleg. Torna-ho a provar.'}}B.onclick=()=>{D.showModal();I.focus();if(!all.length)load();else render()};C.onclick=()=>D.close();F.onsubmit=e=>{e.preventDefault();render()};document.querySelectorAll('.provider-chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.provider-chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');filter=b.dataset.provider;render()});R.onclick=async e=>{const b=e.target.closest('[data-add]');if(!b)return;const list=all.filter(x=>(filter==='all'||x.providers.includes(filter))&&(!I.value.trim()||x.title.toLowerCase().includes(I.value.trim().toLowerCase()))),m=list[Number(b.dataset.add)];if(!m)return;b.disabled=true;b.textContent='Afegint...';try{const r=await fetch('/api/movies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:m.title,year:m.year,poster_url:m.poster||null,rating:m.rating?Math.max(0,Math.min(10,Number(m.rating))):null,watched:false,watched_at:null,favorite:false})});if(!r.ok)throw Error();b.textContent='✓ Afegida'}catch(err){b.disabled=false;b.textContent='+ Afegir a PeliTrack';alert('No s’ha pogut afegir la pel·lícula.')}};})();</script>`;
+app.get(['/', '/index.html'], (req, res) => {
+  const file = path.join(__dirname, 'index.html');
+  let html = fs.readFileSync(file, 'utf8');
+  html = html.replace('</body>', `${discoverUiScript}</body>`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(html);
+});
 app.get('/api/health', (req, res) => res.json({ ok: true, database: 'sqlite' }));
 app.use(express.static(__dirname));
 app.use((req, res) => res.sendFile(path.join(__dirname, 'index.html')));
