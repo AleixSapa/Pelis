@@ -29,7 +29,7 @@
     <label>Gènere<input id="genreInput" maxlength="120" placeholder="Acció, comèdia..."></label><label>Durada (min)<input id="duration" type="number" min="1" max="1000"></label>
     <label>Puntuació<input id="rating" type="number" min="0" max="10" step="0.1"></label>
     <label>URL de la pel·lícula<input id="movieUrl" type="url" placeholder="https://www.disneyplus.com/..." ><small>Aquí va la URL REAL de Netflix, Disney+, Prime Video o Movistar+. Aquesta és la que obrirà el botó «Veure».</small></label>
-    <label>URL del pòster<input id="poster" type="url" placeholder="https://.../poster.jpg"><small>Només la imatge del pòster.</small></label>
+    <label>URL del pòster<input id="poster" type="url" placeholder="https://.../poster.jpg"><small>Només la imatge del pòster. No hi posis la URL de Netflix/Disney+/Prime/Movistar+.</small></label>
     <label class="full">Continuació de<select id="parentMovie"><option value="">🎬 Primera pel·lícula de la saga</option></select><small>Si és la 2a, 3a, etc., selecciona la primera pel·lícula de la saga.</small></label>
     <label class="full">Descripció<textarea id="description" maxlength="2000"></textarea></label><label class="full">Notes<textarea id="notes" maxlength="2000"></textarea></label>
     <label class="check"><input id="isFavorite" type="checkbox"> ❤️ Favorita</label>
@@ -44,6 +44,6 @@
   <small class="discover-attribution">Disponibilitat de streaming: dades de JustWatch. La disponibilitat pot canviar segons el país i el moment.</small>
 </div></dialog>
 <dialog id="detailDialog"><div class="detail-modal"><div class="modal-head"><h2 id="detailTitle">Detall</h2><button type="button" id="closeDetail" class="icon" aria-label="Tancar">✕</button></div><div id="detailContent"></div></div></dialog>
-<script type="module" src="script.js?v=19"></script>
-<script src="search-fix.js?v=5"></script>
+<script type="module" src="script.js?v=20"></script>
+<script src="search-fix.js?v=6"></script>
 </body></html>
