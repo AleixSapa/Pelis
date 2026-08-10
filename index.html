@@ -23,10 +23,10 @@
 <section id="empty" class="empty hidden"><div>🎞️</div><h2>No hi ha pel·lícules</h2><p>Afegeix-ne una per començar.</p><button id="emptyAdd" class="primary">+ Afegir pel·lícula</button></section>
 </main>
 <dialog id="sagaOrganizerDialog" class="saga-organizer"><div class="saga-organizer-modal">
-  <div class="modal-head"><div><h2>🎬 Organitzar sagues</h2><p class="organizer-subtitle">Arrossega els rectangles per canviar l'ordre. També pots reordenar les pel·lícules dins de cada saga.</p></div><button type="button" id="closeSagaOrganizer" class="icon" aria-label="Tancar">✕</button></div>
+  <div class="modal-head"><div><h2>🎬 Organitzar sagues</h2><p class="organizer-subtitle">Aquí veuràs les pel·lícules en el mateix ordre que ara. Arrossega una pel·lícula sobre una altra per crear una saga i després ordena-la com vulguis.</p></div><button type="button" id="closeSagaOrganizer" class="icon" aria-label="Tancar">✕</button></div>
   <div id="sagaCount" class="organizer-count"></div>
   <section class="organizer-section"><h3>🎬 Sagues</h3><div id="sagaGroups" class="saga-list"></div></section>
-  <section class="organizer-section"><h3>🎞️ Pel·lícules independents</h3><div id="sagaStandalone" class="standalone-list"></div></section>
+  <section class="organizer-section"><h3>🎞️ Pel·lícules individuals</h3><div id="sagaStandalone" class="standalone-list"></div></section>
   <div class="organizer-footer"><button type="button" class="primary" id="closeSagaOrganizer2">Fet</button></div>
 </div></dialog>
 <dialog id="dialog"><form id="form" class="modal">
@@ -54,7 +54,7 @@
 <script type="module" src="script.js?v=22"></script>
 <script src="discover-v2.js?v=1"></script>
 <script src="random-fix.js?v=1"></script>
-<script src="saga-organizer.js?v=2"></script>
+<script src="saga-organizer.js?v=3"></script>
 <script src="order-fix.js?v=1"></script>
 <script>document.getElementById('closeSagaOrganizer2')?.addEventListener('click',()=>document.getElementById('sagaOrganizerDialog').close());</script>
 </body></html>
