@@ -1,34 +1,61 @@
 (()=>{
 const dialog=document.getElementById('sagaOrganizerDialog'),openBtn=document.getElementById('sagaBtn');if(!dialog||!openBtn)return;
-let movies=[],state={groups:[],standalone:[],members:{}},changed=false;
+let movies=[],state={groups:[],standalone:[],members:{}};
 const KEY='pelitrack-order-v1';
-const id=m=>String(m.id),esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));
+const id=m=>String(m?.id??'');
+const parentId=m=>m?.parent_movie_id??m?.parentMovieId??m?.parent_id??m?.series_parent_id??m?.saga_parent_id??null;
+const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));
 const api=(url,opt={})=>fetch(url,{headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt}).then(async r=>{if(!r.ok){let x={};try{x=await r.json()}catch{}throw Error(x.error||'No s’ha pogut guardar')}return r.status===204?null:r.json()});
 function save(){localStorage.setItem(KEY,JSON.stringify(state));window.dispatchEvent(new CustomEvent('pelitrack-order-changed'))}
-function pageOrder(){return[...document.querySelectorAll('#grid .card[data-open]')].map(c=>c.dataset.open)}
-function rootOf(m){let cur=m,seen=new Set();while(cur?.parent_movie_id&&!seen.has(id(cur))){seen.add(id(cur));const p=movies.find(x=>id(x)===id(cur.parent_movie_id));if(!p)break;cur=p}return cur||m}
-function build(){
- const order=pageOrder(),rank=new Map(order.map((x,i)=>[String(x),i]));
- const ordered=[...movies].sort((a,b)=>(rank.get(id(a))??999999)-(rank.get(id(b))??999999));
- const gm=new Map(),ind=[];
- for(const m of ordered){const root=rootOf(m);if(m.parent_movie_id&&root&&id(root)!==id(m)){const k=id(root);if(!gm.has(k))gm.set(k,{root,items:[]});gm.get(k).items.push(m)}else ind.push(m)}
- gm.forEach(g=>{if(!g.items.some(m=>id(m)===id(g.root))){const rootIndex=rank.get(id(g.root))??999999;let pos=g.items.findIndex(m=>(rank.get(id(m))??999999)>rootIndex);if(pos<0)pos=g.items.length;g.items.splice(pos,0,g.root)}});
- const groups=[...gm.values()].sort((a,b)=>{const ma=Math.min(...a.items.map(m=>rank.get(id(m))??999999)),mb=Math.min(...b.items.map(m=>rank.get(id(m))??999999));return ma-mb});
- state={groups:groups.map(g=>id(g.root)),standalone:ind.map(id),members:Object.fromEntries(groups.map(g=>[id(g.root),g.items.map(id)]))};save();return{groups,ind}
-}
+function pageOrder(){return[...document.querySelectorAll('#grid .card[data-open]')].map(c=>String(c.dataset.open))}
 function movie(x){return movies.find(m=>id(m)===String(x))}
-function render(){const groups=state.groups.map(r=>{const root=movie(r);return root?{root,items:(state.members[r]||[]).map(movie).filter(Boolean)}:null}).filter(Boolean),ind=state.standalone.map(movie).filter(Boolean);
- document.getElementById('sagaGroups').innerHTML=groups.map(g=>`<div class="saga-box" draggable="true" data-group-id="${esc(id(g.root))}"><div class="saga-box-head"><div><strong>🎬 ${esc(g.root.title)}</strong><span>${g.items.length} pel·lícules</span></div><span class="drag-handle">☷</span></div><div class="saga-movies" data-parent="${esc(id(g.root))}">${g.items.map((m,i)=>`<div class="saga-movie" draggable="true" data-movie-id="${esc(id(m))}"><span>${i+1}️⃣</span><span>${esc(m.title)}</span><span class="drag-handle">☷</span></div>`).join('')}</div></div>`).join('')||'<p class="organizer-empty">No hi ha sagues. Arrossega una pel·lícula sobre una altra per crear-ne una.</p>';
+function rootOf(m){let cur=m,seen=new Set();while(parentId(cur)!=null&&!seen.has(id(cur))){seen.add(id(cur));const p=movie(parentId(cur));if(!p)break;cur=p}return cur||m}
+function existingOrder(){try{return JSON.parse(localStorage.getItem(KEY))||null}catch{return null}}
+function build(){
+ const old=existingOrder();
+ const visualOrder=pageOrder(),rank=new Map(visualOrder.map((x,i)=>[String(x),i]));
+ const fallback=movies.map((m,i)=>{if(!rank.has(id(m)))rank.set(id(m),visualOrder.length+i);return m});
+ const ordered=[...fallback].sort((a,b)=>(rank.get(id(a))??999999)-(rank.get(id(b))??999999));
+ const groupsMap=new Map(),standalone=[];
+ for(const m of ordered){
+   const p=parentId(m);
+   if(p!=null && movie(p)){
+     const root=rootOf(m),r=id(root);
+     if(!groupsMap.has(r))groupsMap.set(r,{root,items:[]});
+     groupsMap.get(r).items.push(m);
+   }else standalone.push(m);
+ }
+ // Afegeix sempre la primera pel·lícula de cada saga al seu propi grup.
+ for(const g of groupsMap.values()){
+   if(!g.items.some(m=>id(m)===id(g.root)))g.items.push(g.root);
+   g.items.sort((a,b)=>(rank.get(id(a))??999999)-(rank.get(id(b))??999999));
+ }
+ let groups=[...groupsMap.values()].sort((a,b)=>{
+   const ra=Math.min(...a.items.map(m=>rank.get(id(m))??999999)),rb=Math.min(...b.items.map(m=>rank.get(id(m))??999999));return ra-rb;
+ });
+ // Si ja hi havia una organització guardada, conserva-la, però només per ordenar; mai converteix una pel·lícula en individual si la BD diu que és d'una saga.
+ if(old?.groups?.length){const gr=new Map(old.groups.map((x,i)=>[String(x),i]));groups.sort((a,b)=>(gr.get(id(a.root))??999999)-(gr.get(id(b.root))??999999));}
+ const groupIds=new Set(groups.map(g=>id(g.root)));
+ standalone.sort((a,b)=>(rank.get(id(a))??999999)-(rank.get(id(b))??999999));
+ state={groups:groups.map(g=>id(g.root)),standalone:standalone.filter(m=>!groupIds.has(id(rootOf(m)))).map(id),members:Object.fromEntries(groups.map(g=>[id(g.root),g.items.map(id)]))};
+ save();return{groups,ind:standalone.filter(m=>!groupIds.has(id(rootOf(m))))}
+}
+function render(){
+ const groups=state.groups.map(r=>{const root=movie(r);return root?{root,items:(state.members[r]||[]).map(movie).filter(Boolean)}:null}).filter(Boolean);
+ const ind=state.standalone.map(movie).filter(Boolean);
+ document.getElementById('sagaGroups').innerHTML=groups.map(g=>`<div class="saga-box" draggable="true" data-group-id="${esc(id(g.root))}"><div class="saga-box-head"><div><strong>🎬 ${esc(g.root.title)}</strong><span>${g.items.length} pel·lícules</span></div><span class="drag-handle">☷</span></div><div class="saga-movies" data-parent="${esc(id(g.root))}">${g.items.map((m,i)=>`<div class="saga-movie" draggable="true" data-movie-id="${esc(id(m))}"><span>${i+1}️⃣</span><span>${esc(m.title)}</span><span class="drag-handle">☷</span></div>`).join('')}</div></div>`).join('')||'<p class="organizer-empty">No hi ha sagues.</p>';
  document.getElementById('sagaStandalone').innerHTML=ind.map(m=>`<div class="saga-movie independent-movie" draggable="true" data-movie-id="${esc(id(m))}"><span>🎞️</span><span>${esc(m.title)}</span><span class="drag-handle">☷</span></div>`).join('')||'<p class="organizer-empty">No hi ha pel·lícules individuals.</p>';
- document.getElementById('sagaCount').textContent=`${groups.length} sagues · ${ind.length} pel·lícules individuals`;dragSetup()}
+ document.getElementById('sagaCount').textContent=`${groups.length} sagues · ${ind.length} pel·lícules individuals`;
+ dragSetup();
+}
 function move(a,from,to){const x=[...a],v=x.splice(from,1)[0];x.splice(Math.max(0,to),0,v);return x}
-async function makeSaga(dragId,targetId){const d=movie(dragId),t=movie(targetId);if(!d||!t||id(d)===id(t))return;const root=rootOf(t),r=id(root);await api(`/api/movies/${d.id}`,{method:'PATCH',body:JSON.stringify({parent_movie_id:Number(root.id)})});state.groups=state.groups.filter(x=>x!==id(d));state.standalone=state.standalone.filter(x=>x!==id(d));if(!state.groups.includes(r))state.groups.push(r);state.members[r]=state.members[r]||[r];if(!state.members[r].includes(r))state.members[r].unshift(r);state.members[r]=state.members[r].filter(x=>x!==id(d));const p=state.members[r].indexOf(id(t));state.members[r].splice(p<0?state.members[r].length:p+1,0,id(d));save();changed=true;render()}
+async function makeSaga(dragId,targetId){const d=movie(dragId),t=movie(targetId);if(!d||!t||id(d)===id(t))return;const root=rootOf(t),r=id(root);await api(`/api/movies/${d.id}`,{method:'PATCH',body:JSON.stringify({parent_movie_id:Number(root.id)})});parentId(d);state.groups=state.groups.filter(x=>x!==id(d));state.standalone=state.standalone.filter(x=>x!==id(d));if(!state.groups.includes(r))state.groups.push(r);state.members[r]=state.members[r]||[r];if(!state.members[r].includes(r))state.members[r].unshift(r);state.members[r]=state.members[r].filter(x=>x!==id(d));const p=state.members[r].indexOf(id(t));state.members[r].splice(p<0?state.members[r].length:p+1,0,id(d));save();movies=movies.map(x=>id(x)===id(d)?{...x,parent_movie_id:Number(root.id)}:x);render()}
 function dragSetup(){
- document.querySelectorAll('.saga-box').forEach(box=>{box.addEventListener('dragstart',e=>{if(e.target.closest('.saga-movie'))return;e.dataTransfer.setData('saga-group',box.dataset.groupId)});box.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('saga-group'))e.preventDefault()});box.addEventListener('drop',e=>{const g=e.dataTransfer.getData('saga-group');if(!g)return;e.preventDefault();const a=state.groups,f=a.indexOf(g),t=a.indexOf(box.dataset.groupId);if(f>=0&&t>=0&&f!==t){state.groups=move(a,f,t);save();changed=true;render()}})});
- document.querySelectorAll('.saga-movies').forEach(list=>{list.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('movie-id'))e.preventDefault()});list.addEventListener('drop',async e=>{const mid=e.dataTransfer.getData('movie-id');if(!mid)return;e.preventDefault();const parent=list.dataset.parent,target=e.target.closest('.saga-movie');if(target){const order=state.members[parent]||[],f=order.indexOf(mid),t=order.indexOf(target.dataset.movieId);if(f>=0&&t>=0&&f!==t){state.members[parent]=move(order,f,t);save();changed=true;render();return}}try{await makeSaga(mid,parent)}catch(err){alert(err.message)}})});
- document.querySelectorAll('.saga-movie').forEach(m=>{m.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('movie-id',m.dataset.movieId)});m.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('movie-id'))e.preventDefault()});m.addEventListener('drop',async e=>{e.preventDefault();e.stopPropagation();const mid=e.dataTransfer.getData('movie-id');if(mid&&mid!==m.dataset.movieId){const d=movie(mid),t=movie(m.dataset.movieId);if(rootOf(d)?.id===rootOf(t)?.id){const r=id(rootOf(t)),o=state.members[r]||[],f=o.indexOf(mid),to=o.indexOf(m.dataset.movieId);if(f>=0&&to>=0){state.members[r]=move(o,f,to);save();changed=true;render();return}}try{await makeSaga(mid,m.dataset.movieId)}catch(err){alert(err.message)}}})});
+ document.querySelectorAll('.saga-box').forEach(box=>{box.addEventListener('dragstart',e=>{if(e.target.closest('.saga-movie'))return;e.dataTransfer.setData('saga-group',box.dataset.groupId)});box.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('saga-group'))e.preventDefault()});box.addEventListener('drop',e=>{const g=e.dataTransfer.getData('saga-group');if(!g)return;e.preventDefault();const a=state.groups,f=a.indexOf(g),t=a.indexOf(box.dataset.groupId);if(f>=0&&t>=0&&f!==t){state.groups=move(a,f,t);save();render()}})});
+ document.querySelectorAll('.saga-movies').forEach(list=>{list.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('movie-id'))e.preventDefault()});list.addEventListener('drop',async e=>{const mid=e.dataTransfer.getData('movie-id');if(!mid)return;e.preventDefault();const parent=list.dataset.parent,target=e.target.closest('.saga-movie');if(target){const order=state.members[parent]||[],f=order.indexOf(mid),t=order.indexOf(target.dataset.movieId);if(f>=0&&t>=0&&f!==t){state.members[parent]=move(order,f,t);save();render();return}}try{await makeSaga(mid,parent)}catch(err){alert(err.message)}})});
+ document.querySelectorAll('.saga-movie').forEach(m=>{m.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('movie-id',m.dataset.movieId)});m.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('movie-id'))e.preventDefault()});m.addEventListener('drop',async e=>{e.preventDefault();e.stopPropagation();const mid=e.dataTransfer.getData('movie-id');if(mid&&mid!==m.dataset.movieId){const d=movie(mid),t=movie(m.dataset.movieId);if(rootOf(d)?.id===rootOf(t)?.id){const r=id(rootOf(t)),o=state.members[r]||[],f=o.indexOf(mid),to=o.indexOf(m.dataset.movieId);if(f>=0&&to>=0){state.members[r]=move(o,f,to);save();render();return}}try{await makeSaga(mid,m.dataset.movieId)}catch(err){alert(err.message)}}})});
  document.querySelectorAll('.independent-movie').forEach(m=>{m.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('movie-id',m.dataset.movieId)});m.addEventListener('dragover',e=>e.preventDefault());m.addEventListener('drop',async e=>{e.preventDefault();e.stopPropagation();const mid=e.dataTransfer.getData('movie-id');if(mid&&mid!==m.dataset.movieId)try{await makeSaga(mid,m.dataset.movieId)}catch(err){alert(err.message)}})})
 }
-async function openOrganizer(){try{movies=await api('/api/movies?'+Date.now());build();render();dialog.showModal()}catch{alert('No s’han pogut carregar les pel·lícules.')}}
+async function openOrganizer(){try{movies=await api('/api/movies');if(!Array.isArray(movies))movies=movies?.movies||movies?.data||movies?.results||[];build();render();dialog.showModal()}catch(err){alert('No s’han pogut carregar les pel·lícules.')}}
 openBtn.addEventListener('click',openOrganizer);document.getElementById('closeSagaOrganizer')?.addEventListener('click',()=>dialog.close());document.getElementById('closeSagaOrganizer2')?.addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close()});
 })();
